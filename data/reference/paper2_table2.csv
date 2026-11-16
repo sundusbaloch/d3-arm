@@ -1,0 +1,31 @@
+pt,a,c,ror,lower,upper
+Dissociation,1217,1713,1093.46,1012.06,1181.41
+Sedation,829,11119,108.25,100.5,116.61
+Suicidal ideation,753,41145,26.21,24.3,28.27
+Nausea,483,420607,1.52,1.39,1.67
+Depression,448,109003,5.6,5.09,6.17
+Anxiety,410,145172,3.82,3.45,4.22
+Vomiting,395,247656,2.13,1.92,2.36
+Hypertension,379,113679,4.5,4.06,4.99
+Dizziness,350,270273,1.71,1.54,1.91
+Blood pressure increased,345,87692,5.3,4.76,5.91
+Hospitalisation,292,74056,5.28,4.7,5.94
+Product dose omission issue,258,153231,2.23,1.97,2.52
+Suicide attempt,248,27277,12.16,10.71,13.81
+Feeling abnormal,226,132892,2.25,1.97,2.56
+Completed suicide,168,31515,7.05,6.05,8.22
+Panic attack,163,18866,11.44,9.79,13.37
+Hallucination,157,37320,5.56,4.74,6.51
+Somnolence,123,104843,1.53,1.28,1.83
+"Hallucination, visual",98,10251,12.56,10.28,15.35
+Device issue,96,57688,2.18,1.78,2.66
+Underdose,91,45000,2.65,2.15,3.25
+Seizure,88,80560,1.42,1.15,1.76
+Hypoaesthesia,86,81037,1.38,1.12,1.71
+Major depression,84,3758,29.34,23.61,36.46
+Surgery,82,29347,3.66,2.94,4.55
+Adverse event,81,35577,2.98,2.39,3.71
+Loss of consciousness,76,65154,1.52,1.21,1.91
+Euphoric mood,74,5087,19.07,15.14,24.01
+Crying,68,18601,4.78,3.76,6.07
+Agitation,65,34725,2.44,1.91,3.12
