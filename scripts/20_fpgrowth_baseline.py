@@ -35,6 +35,7 @@ p.add_argument("--min-support", default="0.01,0.005,0.001",
 p.add_argument("--min-confidence", type=float, default=0.05)
 p.add_argument("--partitions", type=int, default=64)
 p.add_argument("--with-demographics", action="store_true")
+p.add_argument("--no-rules", action="store_true", help="only mine itemsets (rules re-run part of the mining)")
 args = p.parse_args()
 
 spark = get_spark("fpgrowth-baseline", args.cores, args.mem)
@@ -60,11 +61,16 @@ for s in [float(x) for x in args.min_support.split(",")]:
     by_k = {r["k"]: r["count"] for r in fi.groupBy("k").count().collect()}
 
     # drug -> AE rules: every antecedent item is a drug, the consequent is one AE
+    # note: MLlib does not cache its own itemsets, so generating rules re-runs part
+    # of the mining - rules_seconds is NOT a clean timing, only mine_seconds is
     t1 = time.time()
-    rules = model.associationRules
-    drug_ae = rules.where(F.forall("antecedent", lambda i: i.startswith("DRUG="))
-                          & F.forall("consequent", lambda i: i.startswith("AE=")))
-    n_rules, n_drug_ae = rules.count(), drug_ae.count()
+    n_rules = n_drug_ae = None
+    if not args.no_rules:
+        rules = model.associationRules.cache()
+        drug_ae = rules.where(F.forall("antecedent", lambda i: i.startswith("DRUG="))
+                              & F.forall("consequent", lambda i: i.startswith("AE=")))
+        n_rules, n_drug_ae = rules.count(), drug_ae.count()
+        rules.unpersist()
     t_rules = time.time() - t1
 
     fi.drop("k").write.mode("overwrite").parquet(str(out / f"itemsets_s{s}"))
@@ -72,7 +78,7 @@ for s in [float(x) for x in args.min_support.split(",")]:
            "itemsets_by_size": dict(sorted(by_k.items())), "mine_seconds": round(t_mine, 1),
            "rules": n_rules, "drug_to_ae_rules": n_drug_ae, "rules_seconds": round(t_rules, 1)}
     summary["runs"].append(run)
-    (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    (out / f"summary{'_norules' if args.no_rules else ''}.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(run), flush=True)
     print("most frequent pairs:")
     fi.where("k = 2").orderBy(F.desc("freq")).show(10, truncate=False)

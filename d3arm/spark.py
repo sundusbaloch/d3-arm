@@ -1,4 +1,11 @@
+import os
+import sys
+
 from pyspark.sql import SparkSession
+
+# Python workers (used by SON's mapPartitions) must run the same Python as the
+# driver, otherwise PySpark refuses to start them. Happens on Windows and with venvs.
+os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 
 
 def get_spark(app="d3-arm", cores="*", driver_mem="8g", shuffle_partitions=None):
@@ -13,6 +20,9 @@ def get_spark(app="d3-arm", cores="*", driver_mem="8g", shuffle_partitions=None)
         .master(f"local[{cores}]")
         .config("spark.driver.memory", driver_mem)
         .config("spark.sql.session.timeZone", "UTC")
+        # Spark 4 (Colab) has ANSI SQL mode on by default, Spark 3.5 does not.
+        # Turn it on everywhere so a test that passes on the laptop also passes on Colab.
+        .config("spark.sql.ansi.enabled", "true")
     )
     if shuffle_partitions:
         builder = builder.config("spark.sql.shuffle.partitions", str(shuffle_partitions))

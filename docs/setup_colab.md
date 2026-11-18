@@ -33,7 +33,17 @@ First time only (builds those two tar files):
 !tar -cf /content/drive/MyDrive/d3arm_data/clean.tar -C /content/d3arm_data clean logs
 ```
 
+Backups: write to a temporary name and rename only if tar succeeded,
+otherwise a failed tar leaves an EMPTY file in place of the old backup:
+
+```python
+!tar -cf /content/drive/MyDrive/d3arm_data/results.tmp -C /content/d3arm_data results && mv /content/drive/MyDrive/d3arm_data/results.tmp /content/drive/MyDrive/d3arm_data/results.tar
+```
+
 Notes
+- Drive can get unmounted during very long runs. Before a backup, check
+  `!ls /content/drive/MyDrive/d3arm_data` and remount with
+  `drive.mount('/content/drive', force_remount=True)` if needed.
 - Use `--mem` at about 75% of RAM (36g on High-RAM). Pick the CPU runtime,
   not GPU - Spark does not use the GPU here.
 - With 8 cores, the core-scaling runs (local[1] -> local[8]) can be done here.

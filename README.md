@@ -56,8 +56,19 @@ see `docs/setup_windows.md`. On Colab see `docs/setup_colab.md`.
 python scripts/prepare_all.py --delete-zip     # download + unzip + parquet, quarter by quarter
 python scripts/03_clean.py                     # dedup with Paper 2's rule + normalisation
 python scripts/04_transactions.py              # one basket of items per report
+python scripts/80_paper1_simulation.py --repo-dir <clone of TXMUNC/DDI_MDPI_Mathematics_2025>   # Paper 1: their simulation (Tables 2-7), replications in parallel on Spark
+python scripts/81_paper1_vaers.py --zip 2024VAERSData.zip    # Paper 1: modified Apriori on VAERS 2024 (Tables 8-9)
+python scripts/82_paper1_vaers_grid.py       # Paper 1: which minsup / confidence settings reproduce Tables 8-9
 python scripts/10_paper2_ror.py                # Paper 2: esketamine RORs, venlafaxine and sex analyses
 python scripts/20_fpgrowth_baseline.py         # baseline miner: MLlib FPGrowth at several supports
+python scripts/30_son.py                       # SON (2 passes, Apriori per partition), checked against FPGrowth
+python scripts/31_drug_ae_signals.py           # drug x AE counts at 5 reports, ROR and PRR for every pair
+python scripts/40_time_windows.py              # replay quarter by quarter: time to signal, stability, Bloom filter alerts
+python scripts/50_lsh_near_duplicates.py       # MinHash-LSH (25 bands x 8 rows) near-duplicate reports, with a recall check
+python scripts/51_mass_reporting.py            # reports without age/event date: flag identical-content groups (no removal)
+python scripts/60_ablation.py                  # signals after each step: dedup -> + LSH -> + stability over time
+python scripts/70_scaling.py                   # 1/2/4/8 cores and 10-100% of the data, for SON and the drug x AE counts
+python scripts/90_compare_methods.py           # all four papers' methods and ours on the same FAERS data
 ```
 
 `prepare_all.py` can be stopped and restarted, it skips quarters that are
@@ -94,11 +105,12 @@ and runs steps 1-4 on them. Takes under a minute.
 ## Status
 
 - [x] FAERS download, parquet conversion, Paper 2 dedup, transactions
-- [ ] Paper 1 reproduction (constrained Apriori + AUC on the simulation)
+- [x] Paper 1 reproduction: simulation study and VAERS 2024 example (constrained Apriori + AUC on the simulation)
 - [x] Paper 2 reproduction: ROR, venlafaxine sensitivity, sex-stratified ROR
 - [ ] Paper 2 reproduction: DDI rules (lift, conviction, CRR)
 - [ ] Papers 3 and 4 reproduction
-- [ ] SON (Apriori / PCY per partition)
-- [ ] MinHash-LSH near-duplicate removal
-- [ ] ROR/PRR ranking, time windows, Bloom filter
-- [ ] scaling experiments and ablation
+- [x] SON (Apriori per partition, anti-monotone drug/AE constraint)
+- [x] drug x AE counts and ROR/PRR for all drugs
+- [x] MinHash-LSH near-duplicate detection
+- [x] time windows (time to signal, stable signals) and Bloom filter alerts
+- [x] scaling experiments and ablation
