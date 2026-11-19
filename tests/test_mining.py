@@ -73,3 +73,59 @@ def test_pair_counts_match_son(spark):
     assert got == want
     row = add_measures(counts).where("drug = 'DRUG=A' AND ae = 'AE=u'").collect()[0]
     assert row["signal"] and row["ror"] > 1                     # the planted association is found
+
+
+def test_triples_match_brute_force_and_find_planted_interaction(spark):
+    import math
+    from d3arm.mining.triples import add_interaction_measures, triple_counts
+    r = random.Random(3)
+    drugs, aes = [f"DRUG={c}" for c in "ABCDEFGH"], [f"AE={c}" for c in "uvwxyz"]
+    baskets = []
+    for _ in range(3000):
+        b = set(r.sample(drugs, r.randint(1, 4))) | set(r.sample(aes, r.randint(1, 3)))
+        if {"DRUG=A", "DRUG=B"} <= b and r.random() < 0.6:
+            b.add("AE=z")                                     # planted: A and B together -> z
+        baskets.append(sorted(b))
+    baskets.append(drugs + aes)                               # one very long report
+    tx = spark.createDataFrame([(i, b) for i, b in enumerate(baskets)], "primaryid long, items array<string>")
+    c, stats = triple_counts(tx, 5)
+    got = {(x["d1"], x["d2"], x["ae"]): x.asDict() for x in add_interaction_measures(c).collect()}
+
+    cnt = Counter()
+    for b in baskets:
+        ds = sorted(i for i in b if i.startswith("DRUG="))
+        for d1, d2 in itertools.combinations(ds, 2):
+            for e in (i for i in b if i.startswith("AE=")):
+                cnt[(d1, d2, e)] += 1
+    assert set(got) == {k for k, v in cnt.items() if v >= 5}
+    n = lambda *items: sum(1 for b in baskets if set(items) <= set(b))
+    row = got[("DRUG=A", "DRUG=B", "AE=z")]
+    assert (row["a11"], row["n11"], row["n_d1_ae"], row["n_d1"], row["N"]) == (
+        n("DRUG=A", "DRUG=B", "AE=z"), n("DRUG=A", "DRUG=B"), n("DRUG=A", "AE=z"), n("DRUG=A"), len(baskets))
+    r11 = row["a11"] / row["n11"]
+    r10 = (row["n_d1_ae"] - row["a11"]) / (row["n_d1"] - row["n11"])
+    r01 = (row["n_d2_ae"] - row["a11"]) / (row["n_d2"] - row["n11"])
+    assert math.isclose(row["crr"], r11 / max(r10, r01))
+    assert row["interaction_signal"]                          # the planted interaction is found
+    others = [v for k, v in got.items() if k != ("DRUG=A", "DRUG=B", "AE=z")]
+    assert sum(v["interaction_signal"] for v in others) <= 0.05 * len(others)   # few chance findings
+
+
+@pytest.mark.parametrize("buckets", [7, 101, 4096])
+def test_pcy_gives_the_same_itemsets_with_fewer_pairs(buckets):
+    b = make_baskets()
+    for m in (30, 90):
+        plain, st_plain = {}, {}
+        plain = apriori(b, m, stats=st_plain)
+        st = {}
+        assert apriori(b, m, pcy_buckets=buckets, stats=st) == plain == brute(b, m)
+        assert st["pairs_counted"] <= st_plain["pairs_counted"]
+
+
+def test_son_with_pcy_is_exact(spark):
+    from d3arm.mining.son import son
+    b = make_baskets()
+    rdd = spark.sparkContext.parallelize(b, 3).cache()
+    freq, stats = son(rdd, len(b), 60, pcy_buckets=64)
+    assert freq == brute(b, 60)
+    assert stats["pcy_frequent_buckets"] > 0 and stats["pass1_pairs_counted"] > 0

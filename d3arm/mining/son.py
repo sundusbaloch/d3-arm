@@ -14,30 +14,54 @@ import time
 from collections import Counter
 from operator import add
 
+from pyspark.accumulators import AccumulatorParam
+
 from d3arm.mining.apriori import apriori, count_candidates
 
 
-def son(baskets, n_total, min_count, allowed=None, max_k=None):
+class _MaxParam(AccumulatorParam):
+    def zero(self, v):
+        return 0
+
+    def addInPlace(self, a, b):
+        return max(a, b)
+
+
+def son(baskets, n_total, min_count, allowed=None, max_k=None, pcy_buckets=None):
     """
-    baskets   : RDD of sorted item tuples (cache it: it is read twice)
-    n_total   : number of baskets
-    min_count : global support threshold, as a count
+    baskets     : RDD of sorted item tuples (cache it: it is read twice)
+    n_total     : number of baskets
+    min_count   : global support threshold, as a count
+    pcy_buckets : if set, pass 1 uses PCY (hash buckets) for the pairs in each partition
     Returns ({itemset: count}, stats dict).
     """
     sc = baskets.context
     stats = {}
+    pairs_counted = sc.accumulator(0)                  # size of the pair tables in pass 1, summed over partitions
+    max_pairs = sc.accumulator(0, _MaxParam())         # largest pair table in one partition (the memory peak)
+    freq_buckets = sc.accumulator(0)
 
     def local_pass(it):
         part = list(it)
         if not part:
             return []
         thr = min_count * len(part) / n_total          # p_i * s
-        return list(apriori(part, thr, allowed, max_k).keys())
+        st = {}
+        res = apriori(part, thr, allowed, max_k, pcy_buckets=pcy_buckets, stats=st)
+        pairs_counted.add(st.get("pairs_counted", 0))
+        max_pairs.add(st.get("pairs_counted", 0))
+        freq_buckets.add(st.get("frequent_buckets", 0))
+        return list(res.keys())
 
     t0 = time.time()
     cands = baskets.mapPartitions(local_pass).distinct().collect()
     stats["pass1_seconds"] = round(time.time() - t0, 1)
     stats["candidates"] = len(cands)
+    stats["pass1_pairs_counted"] = pairs_counted.value
+    stats["pass1_largest_pair_table"] = max_pairs.value
+    if pcy_buckets:
+        stats["pcy_buckets_per_partition"] = pcy_buckets
+        stats["pcy_frequent_buckets"] = freq_buckets.value
 
     by_k = {}
     for c in cands:

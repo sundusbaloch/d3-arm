@@ -16,7 +16,7 @@ Steps (counts after each one are written to data/logs/dedup_counts.json):
 
 Both are "exact" deduplication in the sense that values must match exactly. Near-duplicates (one field
 slightly different) are NOT caught here - that is what our MinHash-LSH step
-is for (d3arm/dedup/lsh.py).
+is for (d3arm/novelty/lsh.py).
 """
 import json
 from pathlib import Path

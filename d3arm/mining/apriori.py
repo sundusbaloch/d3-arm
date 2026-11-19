@@ -59,9 +59,42 @@ def count_candidates(baskets, cands, k, counter):
                     counter[c] += 1
 
 
-def apriori(baskets, min_count, allowed=None, max_k=None):
-    """All itemsets with count >= min_count (min_count may be a fraction). Returns {itemset: count}."""
+def pcy_bucket_counts(baskets, n_buckets):
+    """PCY pass 1 extra: hash EVERY pair of every basket into one of n_buckets and count.
+    Items get integer ids (order of first appearance); bucket(i, j) = (i * P + j) mod n_buckets.
+    Returns (item -> id, bucket counts). Vectorised per basket with numpy."""
+    import numpy as np
+    ids, counts, P = {}, np.zeros(n_buckets, dtype=np.int64), 1_000_003
+    for b in baskets:
+        if len(b) < 2:
+            for i in b:
+                ids.setdefault(i, len(ids))
+            continue
+        x = np.fromiter((ids.setdefault(i, len(ids)) for i in b), dtype=np.int64, count=len(b))
+        ii, jj = np.triu_indices(len(x), 1)
+        lo, hi = np.minimum(x[ii], x[jj]), np.maximum(x[ii], x[jj])
+        np.add.at(counts, (lo * P + hi) % n_buckets, 1)
+    return ids, counts
+
+
+def apriori(baskets, min_count, allowed=None, max_k=None, pcy_buckets=None, stats=None):
+    """All itemsets with count >= min_count (min_count may be a fraction). Returns {itemset: count}.
+
+    pcy_buckets: if set, use PCY for the pairs: while counting single items, also
+    hash every pair into pcy_buckets buckets; a pair is then counted only if both
+    items are frequent AND its bucket is frequent. Same result (a frequent pair
+    always lies in a frequent bucket), but fewer pairs held in memory.
+    stats: optional dict, filled with 'pairs_counted' (size of the pair table) and,
+    with PCY, 'frequent_buckets'.
+    """
     singles = Counter(i for b in baskets for i in b)
+    bitmap = None
+    if pcy_buckets:
+        ids, bucket_counts = pcy_bucket_counts(baskets, pcy_buckets)
+        bitmap = bucket_counts >= min_count                  # 1 bit per bucket in the textbook version
+        if stats is not None:
+            stats["frequent_buckets"] = int(bitmap.sum())
+        bitmap = bitmap.tolist()                             # plain list: fast lookups in the loop below
     level = {(i,): n for i, n in singles.items()
              if n >= min_count and (allowed is None or allowed((i,)))}
     result = dict(level)
@@ -73,8 +106,17 @@ def apriori(baskets, min_count, allowed=None, max_k=None):
             freq_items = {c[0] for c in level}
             cnt = Counter()
             for b in baskets:
-                for s in combinations([i for i in b if i in freq_items], 2):
-                    cnt[s] += 1
+                fb = [i for i in b if i in freq_items]
+                if bitmap is None:
+                    for s in combinations(fb, 2):
+                        cnt[s] += 1
+                else:                                        # PCY: skip pairs in infrequent buckets
+                    for s in combinations(fb, 2):
+                        x, y = ids[s[0]], ids[s[1]]
+                        if bitmap[(min(x, y) * 1_000_003 + max(x, y)) % pcy_buckets]:
+                            cnt[s] += 1
+            if stats is not None:
+                stats["pairs_counted"] = len(cnt)
             level = {s: n for s, n in cnt.items()
                      if n >= min_count and (allowed is None or allowed(s))}
         else:

@@ -166,3 +166,83 @@ def one_replication(x, names, m, beta, latent, seed, minsup=3):
     true_ddi = np.stack([beta[col[f"vax{i + 1}*vax{j + 1}"]] != 0 for i, j in pairs])
     return ({k: auc(true_main, main[k]) for k in METRICS},
             {k: auc(true_ddi, ddi[k]) for k in METRICS})
+
+
+# ---------------------------------------------------------------- larger n (scaling study)
+# Their drug matrices have n = 5,000 or 10,000 reports. To study n up to 1,000,000
+# we resample their rows with replacement (idx), so the drug exposure pattern
+# stays theirs. Nothing n x p is ever built: x[idx] @ beta = (x @ beta)[idx].
+
+def simulate_ae_resampled(x, idx, beta, latent, rng, q=2, target=0.1):
+    """Same model and the same order of random draws as simulate_ae, on the rows x[idx].
+    simulate_ae_resampled(x, arange(n), ...) == simulate_ae(x, ...) for the same rng state."""
+    n, p = len(idx), x.shape[1]
+    d = beta.shape[1]
+    z = rng.standard_normal((n, q))
+    lc = LATENT[latent]
+    if lc == 1:
+        a = rng.standard_normal((p, q))
+        z = (x @ a)[idx] + z
+        z = (z - z.mean(0)) / z.std(0, ddof=1)
+    elif lc == 2:
+        z = np.zeros_like(z)
+    gamma = np.zeros((q, d))
+    for i in range(q):
+        gamma[i, i:] = rng.standard_normal(d - i)
+    gamma[np.arange(min(q, d)), np.arange(min(q, d))] = 1.0
+    eta = (x @ beta)[idx] + z @ gamma
+    lo, hi = -10.0, 0.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if (1 / (1 + np.exp(-(mid + eta)))).mean() > target:
+            hi = mid
+        else:
+            lo = mid
+    prob = 1 / (1 + np.exp(-((lo + hi) / 2 + eta)))
+    return rng.random((n, d)) < prob
+
+
+def apriori_scores_fast(v, y, minsup=3, chunk=32):
+    """apriori_scores with matrix products (float32 counts are exact below 2^24 = 16.7M reports),
+    the DDI pairs done `chunk` at a time. Same output as apriori_scores."""
+    n, m = v.shape
+    d = y.shape[1]
+    if n >= 2 ** 24:
+        raise ValueError("float32 counts are exact only below 16.7M reports")
+    vf, yf = v.astype(np.float32), y.astype(np.float32)
+    nv, ny = v.sum(0).astype(np.int64), y.sum(0).astype(np.int64)
+    fv, fy = nv >= minsup, ny >= minsup
+    a = np.rint(vf.T @ yf).astype(np.int64)
+    keep = fv[:, None] & fy[None, :] & (a >= minsup)
+    s = _scores(a, nv[:, None] - a, ny[None, :] - a, n - nv[:, None] - ny[None, :] + a, n)
+    main = {k: _clean(val, keep) for k, val in s.items()}
+
+    pairs = list(combinations(range(m), 2))
+    ddi = {k: np.zeros((len(pairs), d)) for k in METRICS}
+    vv = np.rint(vf.T @ vf).astype(np.int64)
+    todo = [r for r, (i, j) in enumerate(pairs) if fv[i] and fv[j] and vv[i, j] >= minsup]
+    for start in range(0, len(todo), chunk):
+        rows = todo[start:start + chunk]
+        ii = np.array([pairs[r][0] for r in rows])
+        jj = np.array([pairs[r][1] for r in rows])
+        w = vf[:, ii] * vf[:, jj]                      # n x chunk: reports with both drugs
+        a3 = np.rint(w.T @ yf).astype(np.int64)        # chunk x d
+        nw = vv[ii, jj][:, None]
+        b3, c3 = nw - a3, ny[None, :] - a3
+        s3 = _scores(a3, b3, c3, n - ny[None, :] - b3, n)
+        keep3 = fy[None, :] & (a3 >= minsup)
+        for k in METRICS:
+            ddi[k][rows] = _clean(s3[k], keep3)
+    return main, ddi, pairs
+
+
+def one_replication_resampled(x, names, m, beta, latent, seed, n, minsup=3):
+    rng = np.random.default_rng(seed)
+    idx = np.random.default_rng(seed + 987_654_321).integers(0, x.shape[0], n)
+    y = simulate_ae_resampled(x, idx, beta, latent, rng)
+    main, ddi, pairs = apriori_scores_fast(x[idx, :m] > 0, y, minsup)
+    true_main = beta[:m] != 0
+    col = {nm: k for k, nm in enumerate(names)}
+    true_ddi = np.stack([beta[col[f"vax{i + 1}*vax{j + 1}"]] != 0 for i, j in pairs])
+    return ({k: auc(true_main, main[k]) for k in METRICS},
+            {k: auc(true_ddi, ddi[k]) for k in METRICS})

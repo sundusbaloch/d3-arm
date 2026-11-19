@@ -69,3 +69,25 @@ def test_vaers_pipeline(tmp_path):
         spark.stop()
     assert same_vaccine("COVID19 (PFIZER-BIONTECH)", "COVID19 (COVID19 (PFIZER-BIONTECH))")
     assert not same_vaccine("HPV (GARDASIL 9)", "TDAP (BOOSTRIX)")
+
+
+def test_fast_scores_equal_original():
+    from d3arm.paper1.simulation import apriori_scores_fast
+    rng = np.random.default_rng(5)
+    v = rng.random((3000, 6)) < 0.25
+    y = rng.random((3000, 5)) < 0.15
+    m1, d1, p1 = apriori_scores(v, y, 3)
+    m2, d2, p2 = apriori_scores_fast(v, y, 3, chunk=4)
+    assert p1 == p2
+    for k in m1:
+        assert np.allclose(m1[k], m2[k]) and np.allclose(d1[k], d2[k])
+
+
+def test_resampled_simulation_equals_original_on_identity_rows():
+    from d3arm.paper1.simulation import simulate_ae_resampled
+    x = (np.random.default_rng(2).random((500, 6)) < 0.3).astype(float)
+    beta = np.zeros((6, 4)); beta[0, 0] = 1; beta[4, 0] = 1
+    for latent in ("no_random_effect", "random_effect", "confounded"):
+        y1 = simulate_ae(x, beta, latent, np.random.default_rng(11))
+        y2 = simulate_ae_resampled(x, np.arange(500), beta, latent, np.random.default_rng(11))
+        assert (y1 == y2).all()
