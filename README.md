@@ -88,6 +88,7 @@ python scripts/30_son.py                       # SON (2 passes, Apriori per part
 python scripts/31_drug_ae_signals.py           # drug x AE counts at 5 reports, ROR and PRR for every pair
 python scripts/32_son_pcy.py                   # SON with PCY inside each partition vs plain Apriori (same itemsets, smaller pair tables?)
 python scripts/33_ddi_triples.py               # drug-drug-AE triples on all of FAERS: combination ROR and combination risk ratio
+python scripts/34_ddi_filter.py                # stricter checks on those triples: Bonferroni, co-packaged products, CRR >= 2
 python scripts/40_time_windows.py              # replay quarter by quarter: time to signal, stability, Bloom filter alerts
 python scripts/50_lsh_near_duplicates.py       # MinHash-LSH (25 bands x 8 rows) near-duplicate reports, with a recall check
 python scripts/51_mass_reporting.py            # reports without age/event date: flag identical-content groups (no removal)
@@ -125,7 +126,7 @@ All scripts take `--cores` (e.g. `--cores 4` runs Spark as `local[4]`) and `--me
 pytest -q tests/
 ```
 
-45 tests. The end-to-end test builds two fake FAERS quarters with planted
+46 tests. The end-to-end test builds two fake FAERS quarters with planted
 duplicates (a case with two versions, a deleted case, an exact duplicate pair
 and a near-duplicate pair) and runs every FAERS script on them. Unit tests
 check Apriori, SON (with and without PCY) and the triple counts against brute
