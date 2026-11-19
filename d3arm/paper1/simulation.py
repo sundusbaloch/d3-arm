@@ -1,4 +1,4 @@
-"""Reproduction of the simulation study in Paper 1 (Hu et al., Mathematics 2025,
+"""Reproduction of the simulation study in Paper 1 (He, Sun & Tan, Mathematics 2025,
 13, 1710): how well does the "modified Apriori" pick out true drug -> AE
 associations (main effects) and drug-drug interactions (DDIs) when there are
 latent factors?
