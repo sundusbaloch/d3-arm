@@ -129,3 +129,15 @@ def test_son_with_pcy_is_exact(spark):
     freq, stats = son(rdd, len(b), 60, pcy_buckets=64)
     assert freq == brute(b, 60)
     assert stats["pcy_frequent_buckets"] > 0 and stats["pass1_pairs_counted"] > 0
+
+
+def test_bonferroni_lower_bound_rescaling(spark):
+    import math
+    from pyspark.sql import functions as F
+    from d3arm.mining.triples import lower_at, z_bonferroni
+    assert abs(z_bonferroni(1, 0.05) - 1.6449) < 1e-3
+    assert abs(z_bonferroni(31761534) - 5.9237) < 1e-3
+    se = 0.25
+    x, lo = 4.0, math.exp(math.log(4.0) - 1.96 * se)
+    got = spark.range(1).select(lower_at(F.lit(x), F.lit(lo), 5.0).alias("v")).first()["v"]
+    assert abs(got - math.exp(math.log(4.0) - 5.0 * se)) < 1e-9
