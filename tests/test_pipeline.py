@@ -30,6 +30,7 @@ def data_dir(tmp_path_factory):
     run("scripts/31_drug_ae_signals.py", "--cores", "2", "--mem", "2g", "--min-count", "1", "--shuffle-partitions", "4")
     run("scripts/32_son_pcy.py", "--cores", "2", "--mem", "2g", "--min-support", "0.2", "--partitions", "3", "--buckets", "64")
     run("scripts/33_ddi_triples.py", "--cores", "2", "--mem", "2g", "--min-count", "1", "--shuffle-partitions", "4")
+    run("scripts/34_ddi_filter.py", "--cores", "2", "--mem", "2g")
     run("scripts/40_time_windows.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4")
     run("scripts/50_lsh_near_duplicates.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4", "--partitions", "2")
     run("scripts/50_lsh_near_duplicates.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4", "--partitions", "2",
@@ -135,3 +136,6 @@ def test_son_pcy_and_triples_run(data_dir):
     assert all(r["identical"] for r in s["runs"])
     t = json.loads((data_dir / "results" / "triples" / "summary.json").read_text())
     assert t["triples"] > 0 and t["interaction_signals"] <= t["combination_signals"] <= t["triples"]
+    f = json.loads((data_dir / "results" / "triples" / "filter_summary.json").read_text())
+    counts = [x["signals"] for x in f["steps"]]
+    assert counts == sorted(counts, reverse=True) and counts[0] == t["interaction_signals"]
