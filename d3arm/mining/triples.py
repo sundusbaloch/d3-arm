@@ -140,3 +140,31 @@ def add_interaction_measures(c, z=1.96):
              .withColumn("crr_upper", F.exp(F.log(crr) + z * se2))
              .withColumn("interaction_signal",
                          F.col("comb_signal") & F.coalesce(F.col("crr_lower") > 1, F.lit(False))))
+
+
+def z_bonferroni(m, alpha=0.05):
+    """one-sided critical value when m tests share an overall error rate alpha"""
+    from statistics import NormalDist
+    return NormalDist().inv_cdf(1 - alpha / m)
+
+
+def lower_at(x, lower95, z):
+    """move a 95% lower bound (z = 1.96) of a log-normal ratio to another z:
+    ln lower = ln x - 1.96 se  ->  se = (ln x - ln lower95) / 1.96"""
+    return F.exp(F.log(x) - (F.log(x) - F.log(lower95)) * (z / 1.96))
+
+
+def specificity_filters(tri, m, alpha=0.05, kit_share=0.8, min_crr=2.0):
+    """adds the stricter checks used by scripts/34_ddi_filter.py:
+      bonf_ok : combination ROR and CRR still > 1 at the Bonferroni z for m tests
+      not_kit : the two drugs are not one co-packaged product
+                (n(d1,d2) / min(n(d1), n(d2)) < kit_share: they also appear apart)
+      big_crr : CRR >= min_crr (the pair at least doubles the AE rate of the worse single drug)"""
+    z = z_bonferroni(m, alpha)
+    share = F.col("n11") / F.least("n_d1", "n_d2")
+    return (tri.withColumn("ror_comb_lower_bonf", lower_at(F.col("ror_comb"), F.col("ror_comb_lower"), z))
+               .withColumn("crr_lower_bonf", lower_at(F.col("crr"), F.col("crr_lower"), z))
+               .withColumn("bonf_ok", F.coalesce((F.col("ror_comb_lower_bonf") > 1) & (F.col("crr_lower_bonf") > 1), F.lit(False)))
+               .withColumn("together_share", share)
+               .withColumn("not_kit", share < kit_share)
+               .withColumn("big_crr", F.coalesce(F.col("crr") >= min_crr, F.lit(False))))
