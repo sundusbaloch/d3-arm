@@ -37,6 +37,7 @@ def data_dir(tmp_path_factory):
         "--bands", "20", "--rows", "10", "--out-name", "lsh_b20_r10")
     run("scripts/51_mass_reporting.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4")
     run("scripts/60_ablation.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4", "--min-count", "1")
+    run("scripts/35_son_after_lsh.py", "--cores", "2", "--mem", "2g", "--min-support", "0.2,0.1", "--partitions", "3")
     run("scripts/90_compare_methods.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4",
         "--itemsets", "itemsets_s0.2")
     run("scripts/70_scaling.py", "--mem", "2g", "--cores-list", "1,2", "--fractions", "0.5", "--max-cores", "2",
@@ -108,6 +109,17 @@ def test_lsh_runs(data_dir):
     s = json.loads((data_dir / "results" / "lsh" / "summary.json").read_text())
     assert s["reports_with_age_and_event_date"] > 0
     assert s["near_duplicate_pairs"] <= s["candidate_pairs"]
+
+
+def test_son_after_lsh(data_dir):
+    s = json.loads((data_dir / "results" / "son_after_lsh" / "summary.json").read_text())
+    a = json.loads((data_dir / "results" / "ablation" / "summary.json").read_text())
+    assert s["removed"] == a["step2_reports_dropped"] >= 1      # same reports dropped as in the ablation
+    assert s["transactions_after"] == s["transactions_before"] - s["removed"]
+    for r in s["runs"]:
+        c = r["same_count"]
+        assert c["gained"] == 0                     # counts can only fall when reports are removed
+        assert c["kept"] + c["lost"] == c["itemsets_before"]
 
 
 def test_ablation_and_scaling_run(data_dir):
