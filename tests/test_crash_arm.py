@@ -85,3 +85,28 @@ def test_paper4_table2_reproduced_from_their_data():
     assert list(ours["lift"].round(3)) == list(ref["lift"])
     assert list(ours["confidence"].round(3)) == list(ref["confidence"])
     assert ours.iloc[0]["antecedent"] == ("Weather=rain",) and ours.iloc[0]["consequent"] == ("Roadway surface=wet",)
+
+
+def test_crash_pipeline_script(tmp_path):
+    """scripts/93 on Paper 4's real data: LSH must find every similar pair brute force finds,
+    and the full table must still give the paper's rules."""
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, D3ARM_DATA=str(tmp_path))
+    subprocess.run([sys.executable, "scripts/93_crash_pipeline.py", "--cores", "2", "--mem", "2g"],
+                   check=True, env=env, cwd=root)
+    s = json.loads((tmp_path / "results" / "crash_pipeline" / "summary.json").read_text())
+    d = s["dedup"]
+    assert s["reports"] == 1171
+    assert d["lsh_found"] == d["brute_force_pairs"]                       # recall 1.0 against brute force
+    assert d["confirmed_same_crash_pairs"] + d["similar_pairs_different_month_or_time"] == d["near_duplicate_pairs"]
+    assert s["rules"]["after"]["reports"] == 1171 - d["reports_removed"]
+    b = s["rules"]["before"]
+    assert (b["2_item_rules"], b["table2_rows_found"], b["table3_rows_found"], b["table4_rows_found"]) == \
+        (196, "20/20", "30/30", "30/30")
+    assert s["time"]["stable"] <= s["time"]["signals_at_end"] <= s["time"]["pairs_followed"]
+    assert s["time"]["bloom_1pct"]["alerts"] + s["time"]["bloom_1pct"]["missed"] == s["time"]["bloom_1pct"]["new_signals"]

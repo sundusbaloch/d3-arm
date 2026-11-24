@@ -13,6 +13,39 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def make_fake_reference(path):
+    """A tiny reference standard in Harpaz et al.'s layout, using the fake data's drugs."""
+    import pandas as pd
+    ref = pd.DataFrame({"EVENT_CONCEPT_NAME": ["Dizziness disorder", "Dizziness disorder", "Agitation", "Agitation"],
+                        "DRUG_CONCEPT_NAME": ["Esketamine", "Sertraline", "Bupropion", "Venlafaxine"],
+                        "GROUND_TRUTH": [1, 0, 1, 0]})
+    ev = pd.DataFrame({"EVENT_CONCEPT_NAME": ["Dizziness disorder", None, "Agitation"],
+                       "MEDDRA_PT": ["Dizziness", "Vertigo", "Agitation"],
+                       "DEFINITION_LEVEL": ["narrow", "broad", "narrow"]})
+    with pd.ExcelWriter(path) as w:
+        ref.to_excel(w, sheet_name="Reference Standard", index=False)
+        ev.to_excel(w, sheet_name="Event Definitions", index=False)
+
+
+def make_fake_crescenddi(folder):
+    """The three CRESCENDDI data records we use, in the published layout, with the fake data's drugs."""
+    import pandas as pd
+    folder.mkdir(parents=True, exist_ok=True)
+    cols = ["DRUG_1_CONCEPT_NAME", "DRUG_2_CONCEPT_NAME", "EVENT_CONCEPT_NAME", "MDR_CODE"]
+    pd.DataFrame([["Esketamine", "venlafaxine", "Dizziness", 1], ["sertraline", "Bupropion", "Nausea", 2]],
+                 columns=cols).to_excel(folder / "Data Record 1 - Positive Controls.xlsx", index=False)
+    pd.DataFrame([["Esketamine", "Risperidone", "Headache", 3], ["Aspirin", "Bupropion", "Vertigo", 4],
+                  ["Esketamine", "Lisinopril", "Headache", 5]],
+                 columns=cols).to_excel(folder / "Data Record 2 - Negative Controls.xlsx", index=False)
+    with pd.ExcelWriter(folder / "Data Record 3 - Single-drug ADRs, indications and negative controls.xlsx") as w:
+        pd.DataFrame({"DRUG_CONCEPT_NAME": ["esketamine", "bupropion", "esketamine"],
+                      "EVENT_CONCEPT_NAME": ["dissociation", "agitation", "depression"],
+                      "EVENT_TYPE": ["Adverse event", "Adverse event", "Indication"],
+                      "SOURCE": ["SIDER", "BNF", "SIDER"]}).to_excel(w, sheet_name="Tab1 - Positive", index=False)
+        pd.DataFrame({"DRUG_CONCEPT_NAME": ["sertraline", "risperidone"],
+                      "EVENT_CONCEPT_NAME": ["vertigo", "nausea"]}).to_excel(w, sheet_name="Tab2 - Negative", index=False)
+
+
 @pytest.fixture(scope="module")
 def data_dir(tmp_path_factory):
     d = tmp_path_factory.mktemp("d3arm_data")
@@ -37,7 +70,17 @@ def data_dir(tmp_path_factory):
         "--bands", "20", "--rows", "10", "--out-name", "lsh_b20_r10")
     run("scripts/51_mass_reporting.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4")
     run("scripts/60_ablation.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4", "--min-count", "1")
+    run("scripts/52_lsh_same_case.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4")
+    run("scripts/60_ablation.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4", "--min-count", "1",
+        "--lsh-pairs", "near_duplicate_pairs_strict")
     run("scripts/35_son_after_lsh.py", "--cores", "2", "--mem", "2g", "--min-support", "0.2,0.1", "--partitions", "3")
+    ref = d / "harpaz_fake.xlsx"
+    make_fake_reference(ref)
+    run("scripts/36_ground_truth_harpaz.py", "--ref", str(ref), "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4")
+    cres = d / "crescenddi_fake"
+    make_fake_crescenddi(cres)
+    run("scripts/37_ground_truth_crescenddi.py", "--ref", str(cres), "--m", "1000",
+        "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4")
     run("scripts/90_compare_methods.py", "--cores", "2", "--mem", "2g", "--shuffle-partitions", "4",
         "--itemsets", "itemsets_s0.2")
     run("scripts/70_scaling.py", "--mem", "2g", "--cores-list", "1,2", "--fractions", "0.5", "--max-cores", "2",
@@ -120,6 +163,56 @@ def test_son_after_lsh(data_dir):
         c = r["same_count"]
         assert c["gained"] == 0                     # counts can only fall when reports are removed
         assert c["kept"] + c["lost"] == c["itemsets_before"]
+
+
+def test_ground_truth_harpaz(data_dir):
+    import pandas as pd
+    s = json.loads((data_dir / "results" / "ground_truth" / "harpaz_summary.json").read_text())
+    assert s["reference"]["pairs"] == 4 and s["reference"]["positive"] == 2
+    assert s["drugs_not_found"] == []
+    for label, terms in [("narrow", {"DIZZINESS"}), ("narrow_broad", {"DIZZINESS", "VERTIGO"})]:
+        d = s["definitions"][label]
+        for m in d["methods"].values():
+            assert m["tp"] + m["fn"] == 2 and m["fp"] + m["tn"] == 2
+        # a for esketamine-dizziness must equal a direct count of reports from the transactions
+        tx = pd.read_parquet(data_dir / "clean" / "transactions")
+        direct = sum(1 for items in tx["items"]
+                     if "DRUG=ESKETAMINE" in items and any(i[3:] in terms for i in items if i.startswith("AE=")))
+        t = pd.read_csv(data_dir / "results" / "ground_truth" / f"harpaz_pairs_{label}.csv")
+        row = t[(t.drug == "ESKETAMINE") & (t.event == "DIZZINESS DISORDER")].iloc[0]
+        assert row["a"] == direct > 0
+        assert row["a_lsh"] <= row["a"]
+
+
+def test_ground_truth_crescenddi(data_dir):
+    import pandas as pd
+    s = json.loads((data_dir / "results" / "ground_truth" / "crescenddi_summary.json").read_text())
+    assert s["triplets"]["total"] == 5 and s["triplets"]["positive"] == 2
+    assert s["single"]["total"] == 4 and s["single"]["positive"] == 2      # the "Indication" row is left out
+    assert s["ddi_drugs_not_found"] == ["LISINOPRIL"]
+    for part, npos, nneg in [("triplets", 2, 3), ("single", 2, 2)]:
+        for m in s[part]["methods"].values():
+            assert m["tp"] + m["fn"] == npos and m["fp"] + m["tn"] == nneg
+    # a11 for esketamine + venlafaxine -> dizziness must equal a direct count from the transactions
+    tx = pd.read_parquet(data_dir / "clean" / "transactions")
+    direct = sum(1 for items in tx["items"]
+                 if {"DRUG=ESKETAMINE", "DRUG=VENLAFAXINE", "AE=DIZZINESS"} <= set(items))
+    t = pd.read_csv(data_dir / "results" / "ground_truth" / "crescenddi_triplets.csv")
+    row = t[(t.d1 == "ESKETAMINE") & (t.d2 == "VENLAFAXINE") & (t.ae == "DIZZINESS")].iloc[0]
+    assert row["a11"] == direct > 0 and row["a11_lsh"] <= row["a11"]
+    single = pd.read_csv(data_dir / "results" / "ground_truth" / "crescenddi_single.csv")
+    direct1 = sum(1 for items in tx["items"] if {"DRUG=ESKETAMINE", "AE=DISSOCIATION"} <= set(items))
+    assert single[(single.drug == "ESKETAMINE") & (single.event == "DISSOCIATION")]["a_end"].iloc[0] == direct1
+
+
+def test_lsh_same_case(data_dir):
+    s = json.loads((data_dir / "results" / "lsh" / "same_case_summary.json").read_text())
+    lsh = json.loads((data_dir / "results" / "lsh" / "summary.json").read_text())
+    assert s["pairs"] == lsh["near_duplicate_pairs"]
+    assert s["same_case"] <= s["pairs"] and s["same_case"] >= 1     # 400/401 differ only by age 45 vs 46
+    assert s["reports_dropped_same_case_pairs"] <= s["reports_dropped_all_pairs"]
+    a = json.loads((data_dir / "results" / "ablation_strict" / "summary.json").read_text())
+    assert a["step2_reports_dropped"] == s["reports_dropped_same_case_pairs"]
 
 
 def test_ablation_and_scaling_run(data_dir):
