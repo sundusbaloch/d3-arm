@@ -77,7 +77,14 @@ def band_rows(b, r, seed=42):
 
 def find_near_duplicates(spark, reports, b=25, r=8, threshold=0.8, max_bucket=500, partitions=64):
     toks = report_tokens(reports).cache()
-    stats = {"reports_with_age_and_event_date": toks.count()}
+    n = toks.count()
+    verified, groups, stats = near_duplicates(spark, toks, b, r, threshold, max_bucket, partitions)
+    return verified, groups, toks, {"reports_with_age_and_event_date": n, **stats}
+
+
+def near_duplicates(spark, toks, b=25, r=8, threshold=0.8, max_bucket=500, partitions=64):
+    """the LSH steps 1-4 on any table of (primaryid, tokens); returns (verified pairs, groups, stats)"""
+    stats = {}
 
     # 1. identical token sets
     groups = (toks.groupBy("tokens").agg(F.min("primaryid").alias("set_id"), F.count("*").alias("n_reports"))
@@ -115,7 +122,36 @@ def find_near_duplicates(spark, reports, b=25, r=8, threshold=0.8, max_bucket=50
     stats["false_positive_candidates"] = stats["candidate_pairs"] - stats["near_duplicate_pairs"]
     stats["sets_in_a_near_duplicate_pair"] = (verified.select(F.col("id1").alias("i"))
                                               .union(verified.select(F.col("id2").alias("i"))).distinct().count())
-    return verified, groups, toks, stats
+    return verified, groups, stats
+
+
+def same_case_filter(spark, reports, verified, age_tolerance=1):
+    """Keep only near-duplicate pairs that can be the same case: the identifying fields
+    must agree, not just the overall token sets.
+      sex and country equal; age within age_tolerance years (age_years is rounded, and
+      two reporters may compute it differently); event dates equal or one a prefix of
+      the other (FAERS dates can be partial: 2019, 201904, 20190415).
+    Returns (pairs that pass, counts of pairs failing each check)."""
+    toks = report_tokens(reports)
+    sets = toks.groupBy("tokens").agg(F.min("primaryid").alias("set_id"))
+    field = lambda prefix: F.get(F.filter("tokens", lambda x: x.startswith(prefix)), 0).substr(len(prefix) + 1, 100)   # get: NULL if absent, also in ANSI mode
+    f = sets.select("set_id", field("EVT=").alias("evt"), field("AGE=").cast("int").alias("age"),
+                    field("SEX=").alias("sex"), field("CTRY=").alias("ctry"))
+    side = lambda i: f.select(F.col("set_id").alias(f"id{i}"), *[F.col(c).alias(f"{c}{i}") for c in ("evt", "age", "sex", "ctry")])
+    j = verified.join(side(1), "id1").join(side(2), "id2")
+    ok_sex = F.col("sex1").eqNullSafe(F.col("sex2"))
+    ok_ctry = F.col("ctry1").eqNullSafe(F.col("ctry2"))
+    ok_age = F.coalesce(F.abs(F.col("age1") - F.col("age2")) <= age_tolerance, F.lit(False))
+    ok_evt = F.coalesce((F.col("evt1") == F.col("evt2")) | F.col("evt1").startswith(F.col("evt2"))
+                        | F.col("evt2").startswith(F.col("evt1")), F.lit(False))
+    j = j.withColumn("ok_sex", ok_sex).withColumn("ok_ctry", ok_ctry).withColumn("ok_age", ok_age) \
+         .withColumn("ok_evt", ok_evt).cache()
+    r = j.agg(F.count("*").alias("pairs"),
+              *[F.sum((~F.col(c)).cast("int")).alias("fail_" + c[3:]) for c in ("ok_sex", "ok_ctry", "ok_age", "ok_evt")],
+              F.sum((F.col("ok_sex") & F.col("ok_ctry") & F.col("ok_age") & F.col("ok_evt")).cast("int")).alias("same_case")
+              ).first().asDict()
+    keep = j.where(F.col("ok_sex") & F.col("ok_ctry") & F.col("ok_age") & F.col("ok_evt")).select("id1", "id2", "jaccard")
+    return keep, {k: int(v or 0) for k, v in r.items()}
 
 
 def brute_force_pairs(token_sets, threshold):
@@ -154,7 +190,11 @@ def components(pairs):
 def reports_to_drop(spark, reports, verified):
     """One report is kept per group of near-duplicates (identical token sets plus
     LSH pairs, joined transitively); returns a DataFrame of primaryids to drop."""
-    toks = report_tokens(reports)
+    return ids_to_drop(spark, report_tokens(reports), verified)
+
+
+def ids_to_drop(spark, toks, verified):
+    """same as reports_to_drop, for any table of (primaryid, tokens)"""
     set_of = toks.groupBy("tokens").agg(F.min("primaryid").alias("set_id"), F.collect_list("primaryid").alias("ids")) \
                  .select("set_id", F.explode("ids").alias("primaryid"))
     roots = components((r["id1"], r["id2"]) for r in verified.select("id1", "id2").toLocalIterator())
