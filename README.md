@@ -139,7 +139,7 @@ arithmetic against the paper's own numbers, and the Paper 1 port. About 6 minute
 - [x] FAERS download, parquet conversion, Paper 2 dedup, transactions
 - [x] Paper 1 reproduction: simulation study, VAERS 2024 example, simulation at up to 1M reports
 - [x] Paper 2 reproduction: cleaning, ROR, venlafaxine sensitivity, sex-stratified ROR
-- [x] Paper 2 DDI rules (lift, conviction, CRR): need the authors' unpublished drug list; our own
+- [ ] Paper 2 DDI rules (lift, conviction, CRR): need the authors' unpublished drug list; our own
       drug-drug-AE analysis is in scripts/33_ddi_triples.py
 - [x] SON (Apriori or PCY per partition, anti-monotone drug/AE constraint), checked against FP-Growth
 - [x] drug x AE counts and ROR/PRR for all drugs; drug-drug-AE triples
