@@ -9,3 +9,4 @@ setuptools        # PySpark 3.5's ML module still imports distutils (gone in Pyt
 rdata             # reads Paper 1's simulation inputs (.RData) without R
 mlxtend>=0.23          # Paper 4's library, used to cross-check our rules
 openpyxl>=3.1          # reads Paper 4's .xlsx data
+xlrd>=2.0              # reads the Harpaz et al. reference standard (.xls)

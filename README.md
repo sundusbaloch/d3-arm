@@ -92,11 +92,15 @@ python scripts/34_ddi_filter.py                # stricter checks on those triple
 python scripts/40_time_windows.py              # replay quarter by quarter: time to signal, stability, Bloom filter alerts
 python scripts/50_lsh_near_duplicates.py       # MinHash-LSH (25 bands x 8 rows) near-duplicate reports, with a recall check
 python scripts/51_mass_reporting.py            # reports without age/event date: flag identical-content groups (no removal)
+python scripts/52_lsh_same_case.py              # stricter near-duplicates: identifying fields must agree (then use --lsh-pairs near_duplicate_pairs_strict)
 python scripts/60_ablation.py                  # signals after each step: dedup -> + LSH -> + stability over time
 python scripts/35_son_after_lsh.py             # SON again after removing LSH near-duplicates (needs script 50)
+python scripts/36_ground_truth_harpaz.py --ref <timeIndexedReferenceStandard.xls>   # ground truth: Harpaz et al. 2014 reference standard
+python scripts/37_ground_truth_crescenddi.py --ref <folder with CRESCENDDI Data Records>   # ground truth: DDI triplets + single-drug ADRs
 python scripts/70_scaling.py                   # 1/2/4/8 cores and 10-100% of the data, for SON and the drug x AE counts
 python scripts/91_paper4_av_rules.py          # Paper 4: Tables 2-7 from the authors' own data (SON on Spark + mlxtend check)
 python scripts/92_paper3_method_on_av.py      # Paper 3's method on Paper 4's data + consistency check of Paper 3's tables
+python scripts/93_crash_pipeline.py --mem 8g   # Paper 4's crash data through the whole D3-ARM pipeline (no FAERS needed)
 python scripts/90_compare_methods.py           # all four papers' methods and ours on the same FAERS data
 ```
 
@@ -127,7 +131,7 @@ All scripts take `--cores` (e.g. `--cores 4` runs Spark as `local[4]`) and `--me
 pytest -q tests/
 ```
 
-47 tests. The end-to-end test builds two fake FAERS quarters with planted
+51 tests. The end-to-end test builds two fake FAERS quarters with planted
 duplicates (a case with two versions, a deleted case, an exact duplicate pair
 and a near-duplicate pair) and runs every FAERS script on them. Unit tests
 check Apriori, SON (with and without PCY) and the triple counts against brute
