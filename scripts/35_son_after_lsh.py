@@ -35,19 +35,21 @@ from d3arm.spark import get_spark
 p = argparse.ArgumentParser()
 p.add_argument("--cores", default="*")
 p.add_argument("--mem", default="8g")
+p.add_argument("--lsh-pairs", default="near_duplicate_pairs",
+               help="near_duplicate_pairs (script 50) or near_duplicate_pairs_strict (script 52)")
 p.add_argument("--min-support", default="0.01,0.005,0.001")
 p.add_argument("--partitions", type=int, default=16)
 args = p.parse_args()
 
 spark = get_spark("son_after_lsh", args.cores, args.mem)
 R = config.RESULTS_DIR
-out = R / "son_after_lsh"
+out = R / ("son_after_lsh" + args.lsh_pairs.replace("near_duplicate_pairs", ""))
 out.mkdir(parents=True, exist_ok=True)
 t0 = time.time()
 
 tx = spark.read.parquet(str(config.CLEAN_DIR / "transactions"))
 reports = spark.read.parquet(str(config.CLEAN_DIR / "reports"))
-verified = spark.read.parquet(str(R / "lsh" / "near_duplicate_pairs"))
+verified = spark.read.parquet(str(R / "lsh" / args.lsh_pairs))
 drop = reports_to_drop(spark, reports, verified).cache()
 
 

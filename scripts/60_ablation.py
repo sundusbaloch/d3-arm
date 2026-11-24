@@ -28,13 +28,15 @@ from d3arm.spark import get_spark
 p = argparse.ArgumentParser()
 p.add_argument("--cores", default="*")
 p.add_argument("--mem", default="8g")
+p.add_argument("--lsh-pairs", default="near_duplicate_pairs",
+               help="near_duplicate_pairs (script 50) or near_duplicate_pairs_strict (script 52)")
 p.add_argument("--min-count", type=int, default=5)
 p.add_argument("--shuffle-partitions", type=int, default=200)
 args = p.parse_args()
 
 spark = get_spark("ablation", args.cores, args.mem, shuffle_partitions=args.shuffle_partitions)
 R = config.RESULTS_DIR
-out = R / "ablation"
+out = R / ("ablation" + args.lsh_pairs.replace("near_duplicate_pairs", ""))
 out.mkdir(parents=True, exist_ok=True)
 t0 = time.time()
 
@@ -49,7 +51,7 @@ s["step1_pairs"] = base.count()
 s["step1_signals"] = base.where("signal").count()
 
 # step 2: drop LSH near-duplicates
-verified = spark.read.parquet(str(R / "lsh" / "near_duplicate_pairs"))
+verified = spark.read.parquet(str(R / "lsh" / args.lsh_pairs))
 drop = reports_to_drop(spark, reports, verified).cache()
 s["step2_reports_dropped"] = drop.count()
 tx2 = tx.join(drop, "primaryid", "left_anti").cache()
